@@ -18,8 +18,23 @@ app.post('/destinations/availability/cities', routes.destinations_availability_c
 // Route 2: availability by countries
 app.post('/destinations/availability/countries', routes.destinations_availability_countries);
 
+// Route 3: destinations features
+app.post('/destinations/features', routes.destinations_features);
+
+// Route 4: planning itineraries
+app.post('/planning/itineraries', routes.post_planning_itineraries);
+
+// Route 5: random destination
+app.get('/destinations/random', routes.destinations_random);
+
 // Route 6: get countries
 app.get('/countries', routes.get_countries);
+
+// Route 7: get country by id
+app.get('/countries/:countryId', routes.get_country_by_id);
+
+// Route 8: get cities
+app.get('/cities', routes.get_cities);
 
 // Route 9: get city by id
 app.get('/cities/:cityId', routes.get_city_by_id);

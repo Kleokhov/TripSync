@@ -544,6 +544,374 @@ const post_planning_itineraries = async function (req, res) {
 };
 
 // ----------------------
+// Route 3: POST /destinations/features
+// ----------------------
+/**
+ * Helper: normalize weights for /destinations/features
+ */
+function normalizeWeights(raw) {
+  const defaults = { food: 0.33, attractions: 0.33, hotels: 0.34 };
+  const merged = {
+    food: raw?.food ?? defaults.food,
+    attractions: raw?.attractions ?? defaults.attractions,
+    hotels: raw?.hotels ?? defaults.hotels,
+  };
+  const sum = merged.food + merged.attractions + merged.hotels || 1;
+  return {
+    food: merged.food / sum,
+    attractions: merged.attractions / sum,
+    hotels: merged.hotels / sum,
+  };
+}
+
+const destinations_features = async function (req, res) {
+  try {
+    const {
+      scope, // "city" | "country"
+      candidateCityIds,
+      minTemp,
+      maxTemp,
+      maxAvgFoodPrice,
+      minHotelRating,
+      minHotelCount,
+      minPoiCount,
+      preferredCategories, // list of primarycategory values
+      weights: rawWeights,
+      limit: rawLimit,
+    } = req.body || {};
+
+    if (scope !== 'city' && scope !== 'country') {
+      return res.status(400).json({ error: 'scope must be "city" or "country"' });
+    }
+
+    const weights = normalizeWeights(rawWeights);
+    const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : 20;
+
+    const params = [];
+    const where = [];
+    let idx = 1;
+
+    if (candidateCityIds && candidateCityIds.length) {
+      where.push(`c.cityid = ANY($${idx})`);
+      params.push(candidateCityIds);
+      idx++;
+    }
+
+    if (minTemp != null) {
+      where.push(`c.avgtemperaturelatestyear >= $${idx}`);
+      params.push(minTemp);
+      idx++;
+    }
+
+    if (maxTemp != null) {
+      where.push(`c.avgtemperaturelatestyear <= $${idx}`);
+      params.push(maxTemp);
+      idx++;
+    }
+
+    if (maxAvgFoodPrice != null) {
+      where.push(`c.avgfoodprice <= $${idx}`);
+      params.push(maxAvgFoodPrice);
+      idx++;
+    }
+
+    let preferredCategoriesArray = null;
+    if (preferredCategories && preferredCategories.length) {
+      preferredCategoriesArray = preferredCategories;
+      params.push(preferredCategoriesArray);
+    }
+
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    // city-level aggregates
+    const query = `
+      SELECT
+        c.cityid                    AS "cityId",
+        c.name                      AS "cityName",
+        co.countryid                AS "countryId",
+        co.name                     AS "countryName",
+        c.avgtemperaturelatestyear  AS "avgTemperature",
+        c.avgfoodprice              AS "avgFoodPrice",
+        AVG(h.rating)               AS "avgHotelRating",
+        COUNT(DISTINCT h.hotelid)   AS "hotelCount",
+        COUNT(DISTINCT p.poiid)     AS "poiCount",
+        ${
+          preferredCategoriesArray
+            ? `
+        COUNT(
+          DISTINCT CASE
+            WHEN p.primarycategory = ANY($${idx})
+            THEN p.poiid
+          END
+        ) AS "matchingPoiCount"`
+            : `0::int AS "matchingPoiCount"`
+        }
+      FROM cities c
+      JOIN countries co ON co.countryid = c.countryid
+      LEFT JOIN hotel h ON h.cityid = c.cityid
+      LEFT JOIN pois   p ON p.cityid = c.cityid
+      ${whereClause}
+      GROUP BY
+        c.cityid,
+        c.name,
+        co.countryid,
+        co.name,
+        c.avgtemperaturelatestyear,
+        c.avgfoodprice
+    `;
+
+    const finalParams =
+      preferredCategoriesArray && params[params.length - 1] !== preferredCategoriesArray
+        ? [...params, preferredCategoriesArray]
+        : params;
+
+    const { rows: cityRows } = await connection.query(query, finalParams);
+
+    // Apply minHotelRating / minHotelCount / minPoiCount in JS
+    let filteredCities = cityRows.filter((r) => {
+      if (minHotelRating != null && r.avgHotelRating != null && r.avgHotelRating < minHotelRating) {
+        return false;
+      }
+      if (minHotelCount != null && Number(r.hotelCount) < minHotelCount) {
+        return false;
+      }
+      if (minPoiCount != null && Number(r.poiCount) < minPoiCount) {
+        return false;
+      }
+      return true;
+    });
+
+    if (!filteredCities.length) {
+      return res.json({ destinations: [] });
+    }
+
+    // If scope="country", aggregate cities into countries
+    let destinations;
+    if (scope === 'city') {
+      destinations = filteredCities.map((r) => ({
+        id: r.cityId,
+        scope: 'city',
+        name: r.cityName,
+        countryId: r.countryId,
+        countryName: r.countryName,
+        avgTemperature: r.avgTemperature,
+        avgFoodPrice: r.avgFoodPrice,
+        avgHotelRating: r.avgHotelRating,
+        hotelCount: Number(r.hotelCount),
+        poiCount: Number(r.poiCount),
+        matchingPoiCount: Number(r.matchingPoiCount),
+      }));
+    } else {
+      const map = new Map();
+      for (const r of filteredCities) {
+        const key = r.countryId;
+        if (!map.has(key)) {
+          map.set(key, {
+            id: r.countryId,
+            scope: 'country',
+            name: r.countryName,
+            countryId: r.countryId,
+            countryName: r.countryName,
+            temps: [],
+            foodPrices: [],
+            hotelRatings: [],
+            hotelCount: 0,
+            poiCount: 0,
+            matchingPoiCount: 0,
+          });
+        }
+        const entry = map.get(key);
+        if (r.avgTemperature != null) entry.temps.push(Number(r.avgTemperature));
+        if (r.avgFoodPrice != null) entry.foodPrices.push(Number(r.avgFoodPrice));
+        if (r.avgHotelRating != null) entry.hotelRatings.push(Number(r.avgHotelRating));
+        entry.hotelCount += Number(r.hotelCount);
+        entry.poiCount += Number(r.poiCount);
+        entry.matchingPoiCount += Number(r.matchingPoiCount);
+      }
+
+      destinations = Array.from(map.values()).map((e) => ({
+        id: e.id,
+        scope: 'country',
+        name: e.name,
+        countryId: e.countryId,
+        countryName: e.countryName,
+        avgTemperature: e.temps.length
+          ? e.temps.reduce((a, b) => a + b, 0) / e.temps.length
+          : null,
+        avgFoodPrice: e.foodPrices.length
+          ? e.foodPrices.reduce((a, b) => a + b, 0) / e.foodPrices.length
+          : null,
+        avgHotelRating: e.hotelRatings.length
+          ? e.hotelRatings.reduce((a, b) => a + b, 0) / e.hotelRatings.length
+          : null,
+        hotelCount: e.hotelCount,
+        poiCount: e.poiCount,
+        matchingPoiCount: e.matchingPoiCount,
+      }));
+    }
+
+    // Min–max normalization within this result set
+    const maxFood = Math.max(...destinations.map((d) => d.avgFoodPrice || 0), 1);
+    const maxPoi = Math.max(...destinations.map((d) => d.poiCount || 0), 1);
+    const maxHotels = Math.max(...destinations.map((d) => d.hotelCount || 0), 1);
+
+    const scored = destinations.map((d) => {
+      const foodScore =
+        d.avgFoodPrice != null ? 1 - Math.min(d.avgFoodPrice / maxFood, 1) : 0.0;
+      const attractionsScore =
+        d.poiCount > 0 ? Math.min(d.poiCount / maxPoi, 1) : 0.0;
+      const hotelScore =
+        d.hotelCount > 0 ? Math.min(d.hotelCount / maxHotels, 1) : 0.0;
+
+      const compositeScore =
+        weights.food * foodScore +
+        weights.attractions * attractionsScore +
+        weights.hotels * hotelScore;
+
+      return {
+        ...d,
+        foodScore,
+        attractionsScore,
+        hotelScore,
+        compositeScore,
+      };
+    });
+
+    scored.sort((a, b) => b.compositeScore - a.compositeScore);
+    const top = scored.slice(0, limit);
+
+    // Sample attractions for each destination
+    for (const dest of top) {
+      if (dest.scope === 'city') {
+        const { rows: poiRows } = await connection.query(
+          `
+          SELECT
+            poiid      AS "poiId",
+            name       AS "name",
+            primarycategory AS "category",
+            cityid     AS "cityId"
+          FROM pois
+          WHERE cityid = $1
+          ORDER BY poiid
+          LIMIT 5
+        `,
+          [dest.id],
+        );
+        dest.sampleAttractions = poiRows;
+      } else {
+        const { rows: poiRows } = await connection.query(
+          `
+          SELECT
+            p.poiid      AS "poiId",
+            p.name       AS "name",
+            p.primarycategory AS "category",
+            p.cityid     AS "cityId"
+          FROM pois p
+          JOIN cities c ON c.cityid = p.cityid
+          WHERE c.countryid = $1
+          ORDER BY p.poiid
+          LIMIT 5
+        `,
+          [dest.countryId],
+        );
+        dest.sampleAttractions = poiRows;
+      }
+    }
+
+    res.json({ destinations: top });
+  } catch (err) {
+    console.error("Route 3 error:", err);
+    return res.status(500).json({
+      error: "Database query failed",
+      destinations: []
+    });
+  }
+};
+
+// ----------------------
+// Route 5: GET /destinations/random
+// ----------------------
+const destinations_random = async function (req, res) {
+  try {
+    const scope = (req.query.scope || 'city').toLowerCase();
+    const countryId = req.query.countryId
+      ? parseInt(req.query.countryId, 10)
+      : null;
+
+    if (scope !== 'city' && scope !== 'country') {
+      return res.status(400).json({ error: 'scope must be "city" or "country"' });
+    }
+
+    if (scope === 'country') {
+      const { rows } = await connection.query(
+        `
+        SELECT
+          countryid AS "countryId",
+          name      AS "countryName"
+        FROM countries
+        ORDER BY RANDOM()
+        LIMIT 1
+      `,
+      );
+
+      if (!rows.length) {
+        return res.json(null);
+      }
+
+      return res.json({
+        scope: 'country',
+        countryId: rows[0].countryId,
+        countryName: rows[0].countryName,
+        cityId: null,
+        cityName: null,
+      });
+    }
+
+    // scope === 'city'
+    const params = [];
+    let where = '';
+    if (countryId != null && !Number.isNaN(countryId)) {
+      where = 'WHERE c.countryid = $1';
+      params.push(countryId);
+    }
+
+    const { rows } = await connection.query(
+      `
+      SELECT
+        c.cityid    AS "cityId",
+        c.name      AS "cityName",
+        co.countryid AS "countryId",
+        co.name     AS "countryName"
+      FROM cities c
+      JOIN countries co ON co.countryid = c.countryid
+      ${where}
+      ORDER BY RANDOM()
+      LIMIT 1
+    `,
+      params,
+    );
+
+    if (!rows.length) {
+      return res.json(null);
+    }
+
+    const row = rows[0];
+    res.json({
+      scope: 'city',
+      countryId: row.countryId,
+      countryName: row.countryName,
+      cityId: row.cityId,
+      cityName: row.cityName,
+    });
+  } catch (err) {
+    console.error("Route 5 error:", err);
+    return res.status(500).json({
+      error: "Database query failed"
+    });
+  }
+};
+
+// ----------------------
 // Route 6: GET /countries
 // ----------------------
 const get_countries = async function (req, res) {
@@ -636,6 +1004,216 @@ const get_countries = async function (req, res) {
       page: pageEffective,
       pageSize: pageSizeEffective,
       total: 0,
+    });
+  }
+};
+
+// ----------------------
+// Route 7: GET /countries/:countryId
+// ----------------------
+const get_country_by_id = async function (req, res) {
+  try {
+    const countryId = parseInt(req.params.countryId, 10);
+    if (Number.isNaN(countryId)) {
+      return res.status(400).json({ error: 'countryId must be an integer' });
+    }
+
+    const { rows } = await connection.query(
+      `
+      SELECT
+        co.countryid            AS "countryId",
+        co.name                 AS "name",
+        co.alpha_2_country_code AS "alpha2Code",
+        co.alpha_3_country_code AS "alpha3Code",
+        co.other_name           AS "otherName",
+        co.gdp                  AS "gdp",
+        co.avg_heat_index       AS "avgHeatIndex",
+        AVG(ci.avgtemperaturelatestyear) AS "avgCityTemperature",
+        AVG(ci.avgfoodprice)            AS "avgFoodPrice",
+        AVG(ci.avggasprice)             AS "avgGasPrice",
+        AVG(ci.avgmonthlysalary)        AS "avgMonthlySalary",
+        COUNT(ci.cityid)                AS "cityCount"
+      FROM countries co
+      LEFT JOIN cities ci
+        ON ci.countryid = co.countryid
+      WHERE co.countryid = $1
+      GROUP BY
+        co.countryid,
+        co.name,
+        co.alpha_2_country_code,
+        co.alpha_3_country_code,
+        co.other_name,
+        co.gdp,
+        co.avg_heat_index
+    `,
+      [countryId],
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ error: 'Country not found' });
+    }
+
+    const country = rows[0];
+
+    const { rows: exampleCities } = await connection.query(
+      `
+      SELECT
+        cityid AS "cityId",
+        name   AS "cityName"
+      FROM cities
+      WHERE countryid = $1
+      ORDER BY name
+      LIMIT 5
+    `,
+      [countryId],
+    );
+
+    res.json({
+      countryId: country.countryId,
+      name: country.name,
+      alpha2Code: country.alpha2Code,
+      alpha3Code: country.alpha3Code,
+      otherName: country.otherName,
+      gdp: country.gdp,
+      avgHeatIndex: country.avgHeatIndex,
+      avgCityTemperature: country.avgCityTemperature,
+      avgFoodPrice: country.avgFoodPrice,
+      avgGasPrice: country.avgGasPrice,
+      avgMonthlySalary: country.avgMonthlySalary,
+      cityCount: Number(country.cityCount),
+      exampleCities: exampleCities.map((c) => ({
+        cityId: c.cityId,
+        cityName: c.cityName,
+      })),
+    });
+  } catch (err) {
+    console.error('Route 7 error:', err);
+    return res.status(500).json({
+      error: 'Database query failed'
+    });
+  }
+};
+
+// ----------------------
+// Route 8: GET /cities
+// ----------------------
+const get_cities = async function (req, res) {
+  // Define page and pageSize outside try block for catch block access
+  let page = 1;
+  let pageSize = 20;
+
+  try {
+    const search = req.query.search || null;
+    const countryId = req.query.countryId
+      ? parseInt(req.query.countryId, 10)
+      : null;
+    const minTemp = req.query.minTemp != null ? parseFloat(req.query.minTemp) : null;
+    const maxTemp = req.query.maxTemp != null ? parseFloat(req.query.maxTemp) : null;
+    const maxFood = req.query.maxFood != null ? parseFloat(req.query.maxFood) : null;
+    page = Math.max(parseInt(req.query.page || '1', 10), 1);
+    pageSize = Math.max(parseInt(req.query.pageSize || '20', 10), 1);
+    const limit = pageSize;
+    const offset = (page - 1) * pageSize;
+
+    const params = [];
+    const where = [];
+    let idx = 1;
+
+    if (search) {
+      where.push(`c.name ILIKE $${idx}`);
+      params.push(`%${search}%`);
+      idx++;
+    }
+
+    if (countryId != null && !Number.isNaN(countryId)) {
+      where.push(`c.countryid = $${idx}`);
+      params.push(countryId);
+      idx++;
+    }
+
+    if (minTemp != null) {
+      where.push(`c.avgtemperaturelatestyear >= $${idx}`);
+      params.push(minTemp);
+      idx++;
+    }
+
+    if (maxTemp != null) {
+      where.push(`c.avgtemperaturelatestyear <= $${idx}`);
+      params.push(maxTemp);
+      idx++;
+    }
+
+    if (maxFood != null) {
+      where.push(`c.avgfoodprice <= $${idx}`);
+      params.push(maxFood);
+      idx++;
+    }
+
+    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+
+    const totalResult = await connection.query(
+      `
+      SELECT COUNT(*) AS total
+      FROM cities c
+      ${whereClause}
+    `,
+      params,
+    );
+    const total = parseInt(totalResult.rows[0].total, 10);
+
+    // Add limit and offset as parameters
+    const limitIdx = idx;
+    const offsetIdx = idx + 1;
+    params.push(limit);
+    params.push(offset);
+
+    const cityResult = await connection.query(
+      `
+      SELECT
+        c.cityid                   AS "cityId",
+        c.name                     AS "name",
+        c.countryid                AS "countryId",
+        co.name                    AS "countryName",
+        c.latitude                 AS "latitude",
+        c.longitude                AS "longitude",
+        c.avgtemperaturelatestyear AS "avgTemperature",
+        c.avgfoodprice             AS "avgFoodPrice",
+        c.avggasprice              AS "avgGasPrice",
+        c.avgmonthlysalary         AS "avgMonthlySalary"
+      FROM cities c
+      JOIN countries co ON co.countryid = c.countryid
+      ${whereClause}
+      ORDER BY c.name
+      LIMIT $${limitIdx} OFFSET $${offsetIdx}
+    `,
+      params,
+    );
+
+    res.json({
+      cities: cityResult.rows.map((r) => ({
+        cityId: r.cityId,
+        name: r.name,
+        countryId: r.countryId,
+        countryName: r.countryName,
+        latitude: r.latitude,
+        longitude: r.longitude,
+        avgTemperature: r.avgTemperature,
+        avgFoodPrice: r.avgFoodPrice,
+        avgGasPrice: r.avgGasPrice,
+        avgMonthlySalary: r.avgMonthlySalary,
+      })),
+      page,
+      pageSize,
+      total,
+    });
+  } catch (err) {
+    console.error('Route 8 error:', err);
+    return res.status(500).json({
+      error: 'Database query failed',
+      cities: [],
+      page,
+      pageSize,
+      total: 0
     });
   }
 };
@@ -935,7 +1513,12 @@ const get_recommendations_cities_warm_budget = async function (req, res) {
 module.exports = {
     destinations_availability_cities,
     destinations_availability_countries,
+    post_planning_itineraries,
+    destinations_features,
+    destinations_random,
     get_countries,
+    get_country_by_id,
+    get_cities,
     get_city_by_id,
     get_city_pois,
     get_city_hotels,
