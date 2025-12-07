@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const config = require('./config.json');
 const routes = require('./routes');
 
 const app = express();
@@ -9,7 +8,6 @@ app.use(cors({
   origin: '*',
 }));
 
-// needed so req.body works with JSON POSTs
 app.use(express.json());
 
 // Route 1: availability by cities
@@ -50,9 +48,5 @@ app.get('/recommendations/cities/top-attractions', routes.get_recommendations_ci
 
 // Route 13: warm & budget recommendation
 app.get('/recommendations/cities/warm-budget', routes.get_recommendations_cities_warm_budget);
-
-app.listen(config.server_port, () => {
-  console.log(`Server running at http://${config.server_host}:${config.server_port}/`);
-});
 
 module.exports = app;
