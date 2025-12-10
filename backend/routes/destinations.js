@@ -225,6 +225,7 @@ const destinations_features = async function (req, res) {
     const weights = normalizeWeights(rawWeights);
     const limit = Number.isInteger(rawLimit) && rawLimit > 0 ? rawLimit : 20;
 
+    // Build WHERE clause for cities
     const params = [];
     const where = [];
     let idx = 1;
@@ -253,77 +254,60 @@ const destinations_features = async function (req, res) {
       idx++;
     }
 
-    let preferredCategoriesArray = null;
-    let preferredCategoriesParamIdx = null;
+    // Track index for preferred categories
+    let preferredCategoriesIdx = null;
     if (preferredCategories && preferredCategories.length) {
-      preferredCategoriesArray = preferredCategories;
-      preferredCategoriesParamIdx = idx;
-      params.push(preferredCategoriesArray);
+      preferredCategoriesIdx = idx;
+      params.push(preferredCategories);
       idx++;
     }
 
-    const whereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const citiesWhereClause = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // Optimized query - apply filters first, then aggregate
-    // This significantly reduces the dataset before expensive aggregations
+    // OPTIMIZED: Push city filtering into CTEs to avoid scanning entire hotel/pois tables
+    // filtered_cities CTE filters cities first, then hotel_stats and poi_stats only aggregate matching rows
     const query = `
       WITH filtered_cities AS (
-        SELECT
-          c.cityid,
-          c.name,
-          co.countryid,
-          co.name AS country_name,
-          c.avgtemperaturelatestyear,
-          c.avgfoodprice
+        SELECT c.cityid, c.name, c.countryid, c.avgtemperaturelatestyear, c.avgfoodprice
         FROM cities c
-        JOIN countries co ON co.countryid = c.countryid
-        ${whereClause}
-        LIMIT 500
+        ${citiesWhereClause}
+      ),
+      hotel_stats AS (
+        SELECT
+          h.cityid,
+          AVG(h.rating) AS avg_rating,
+          COUNT(*) AS hotel_count
+        FROM hotel h
+        INNER JOIN filtered_cities fc ON fc.cityid = h.cityid
+        GROUP BY h.cityid
+      ),
+      poi_stats AS (
+        SELECT
+          p.cityid,
+          COUNT(*) AS poi_count
+          ${preferredCategoriesIdx ? `, COUNT(CASE WHEN p.primarycategory = ANY($${preferredCategoriesIdx}) THEN 1 END) AS matching_poi_count` : ', 0 AS matching_poi_count'}
+        FROM pois p
+        INNER JOIN filtered_cities fc ON fc.cityid = p.cityid
+        GROUP BY p.cityid
       )
       SELECT
         fc.cityid                    AS "cityId",
         fc.name                      AS "cityName",
-        fc.countryid                 AS "countryId",
-        fc.country_name              AS "countryName",
+        co.countryid                 AS "countryId",
+        co.name                      AS "countryName",
         fc.avgtemperaturelatestyear  AS "avgTemperature",
         fc.avgfoodprice              AS "avgFoodPrice",
-        COALESCE(hotel_stats.avg_rating, NULL) AS "avgHotelRating",
-        COALESCE(hotel_stats.hotel_count, 0)::int AS "hotelCount",
-        COALESCE(poi_stats.poi_count, 0)::int AS "poiCount",
-        ${
-          preferredCategoriesArray && preferredCategoriesParamIdx
-            ? `COALESCE(poi_stats.matching_poi_count, 0)::int AS "matchingPoiCount"`
-            : `0::int AS "matchingPoiCount"`
-        }
+        COALESCE(hs.avg_rating, 0)   AS "avgHotelRating",
+        COALESCE(hs.hotel_count, 0)  AS "hotelCount",
+        COALESCE(ps.poi_count, 0)    AS "poiCount",
+        COALESCE(ps.matching_poi_count, 0) AS "matchingPoiCount"
       FROM filtered_cities fc
-      LEFT JOIN (
-        SELECT 
-          h.cityid,
-          AVG(h.rating) AS avg_rating,
-          COUNT(DISTINCT h.hotelid) AS hotel_count
-        FROM hotels h
-        WHERE h.cityid IN (SELECT cityid FROM filtered_cities)
-        GROUP BY h.cityid
-      ) hotel_stats ON hotel_stats.cityid = fc.cityid
-      LEFT JOIN (
-        SELECT 
-          p.cityid,
-          COUNT(DISTINCT p.poiid) AS poi_count,
-          ${
-            preferredCategoriesArray && preferredCategoriesParamIdx
-              ? `COUNT(DISTINCT CASE WHEN p.primarycategory = ANY($${preferredCategoriesParamIdx}) THEN p.poiid END) AS matching_poi_count`
-              : `0::int AS matching_poi_count`
-          }
-        FROM pois p
-        WHERE p.cityid IN (SELECT cityid FROM filtered_cities)
-        GROUP BY p.cityid
-      ) poi_stats ON poi_stats.cityid = fc.cityid
-      ORDER BY fc.cityid
+      JOIN countries co ON co.countryid = fc.countryid
+      LEFT JOIN hotel_stats hs ON hs.cityid = fc.cityid
+      LEFT JOIN poi_stats ps ON ps.cityid = fc.cityid
     `;
 
-    const finalParams = params;
-
-    const { rows: cityRows } = await connection.query(query, finalParams);
+    const { rows: cityRows } = await connection.query(query, params);
 
     // Apply minHotelRating / minHotelCount / minPoiCount in JS
     let filteredCities = cityRows.filter((r) => {
@@ -438,13 +422,96 @@ const destinations_features = async function (req, res) {
     scored.sort((a, b) => b.compositeScore - a.compositeScore);
     const top = scored.slice(0, limit);
 
+    // OPTIMIZED: Batch fetch sample attractions in a single query instead of N queries
+    if (top.length > 0) {
+      if (scope === 'city') {
+        // Get all city IDs we need attractions for
+        const cityIds = top.map(d => d.id);
+        const { rows: allPoiRows } = await connection.query(
+          `
+          SELECT * FROM (
+            SELECT
+              poiid      AS "poiId",
+              name       AS "name",
+              primarycategory AS "category",
+              cityid     AS "cityId",
+              ROW_NUMBER() OVER (PARTITION BY cityid ORDER BY poiid) AS rn
+            FROM pois
+            WHERE cityid = ANY($1)
+          ) sub
+          WHERE rn <= 5
+          ORDER BY "cityId", rn
+          `,
+          [cityIds]
+        );
+
+        // Group POIs by cityId
+        const poiMap = new Map();
+        for (const poi of allPoiRows) {
+          if (!poiMap.has(poi.cityId)) {
+            poiMap.set(poi.cityId, []);
+          }
+          poiMap.get(poi.cityId).push({
+            poiId: poi.poiId,
+            name: poi.name,
+            category: poi.category,
+            cityId: poi.cityId
+          });
+        }
+
+        // Assign to destinations
+        for (const dest of top) {
+          dest.sampleAttractions = poiMap.get(dest.id) || [];
+        }
+      } else {
+        // Country scope - batch by country IDs
+        const countryIds = top.map(d => d.countryId);
+        const { rows: allPoiRows } = await connection.query(
+          `
+          SELECT * FROM (
+            SELECT
+              p.poiid      AS "poiId",
+              p.name       AS "name",
+              p.primarycategory AS "category",
+              p.cityid     AS "cityId",
+              c.countryid  AS "countryId",
+              ROW_NUMBER() OVER (PARTITION BY c.countryid ORDER BY p.poiid) AS rn
+            FROM pois p
+            JOIN cities c ON c.cityid = p.cityid
+            WHERE c.countryid = ANY($1)
+          ) sub
+          WHERE rn <= 5
+          ORDER BY "countryId", rn
+          `,
+          [countryIds]
+        );
+
+        // Group POIs by countryId
+        const poiMap = new Map();
+        for (const poi of allPoiRows) {
+          if (!poiMap.has(poi.countryId)) {
+            poiMap.set(poi.countryId, []);
+          }
+          poiMap.get(poi.countryId).push({
+            poiId: poi.poiId,
+            name: poi.name,
+            category: poi.category,
+            cityId: poi.cityId
+          });
+        }
+
+        // Assign to destinations
+        for (const dest of top) {
+          dest.sampleAttractions = poiMap.get(dest.countryId) || [];
+        }
+      }
+    }
+
     res.json({ destinations: top });
   } catch (err) {
     console.error("Route 3 error:", err);
-    console.error("Error details:", err.message, err.stack);
     return res.status(500).json({
-      error: err.message || "Database query failed",
-      details: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+      error: "Database query failed",
       destinations: []
     });
   }
