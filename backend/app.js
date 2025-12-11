@@ -49,4 +49,10 @@ app.get('/recommendations/cities/top-attractions', routes.get_recommendations_ci
 // Route 13: warm & budget recommendation
 app.get('/recommendations/cities/warm-budget', routes.get_recommendations_cities_warm_budget);
 
+// Route 14: balanced city lists
+app.get('/recommendations/cities/balanced', routes.get_recommendations_cities_balanced);
+
+// Route 15: best cities per country
+app.get('/recommendations/cities/best-per-country', routes.get_recommendations_cities_best_per_country);
+
 module.exports = app;
