@@ -14,7 +14,7 @@ app.use(express.json());
 app.post('/destinations/availability/cities', routes.destinations_availability_cities);
 
 // Route 2: availability by countries
-app.post('/destinations/availability/countries', routes.destinations_availability_countries);
+// app.post('/destinations/availability/countries', routes.destinations_availability_countries);
 
 // Route 3: destinations features
 app.post('/destinations/features', routes.destinations_features);

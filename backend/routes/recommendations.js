@@ -10,22 +10,22 @@ const get_recommendations_cities_top_attractions = async function (req, res) {
     Number.isInteger(limitNum) && limitNum > 0 ? limitNum : 10;
 
   const sql = `
+    WITH city_poi_counts AS (
+      SELECT 
+        cityid,
+        COUNT(poiid)::int AS poi_count
+      FROM pois
+      GROUP BY cityid
+    )
     SELECT
       c.cityid                AS "cityId",
       c.name                  AS "name",
       co.countryid            AS "countryId",
       co.name                 AS "countryName",
-      COUNT(p.poiid)::int     AS "poiCount"
+      COALESCE(cpc.poi_count, 0)::int AS "poiCount"
     FROM cities c
-    JOIN countries co
-      ON co.countryid = c.countryid
-    LEFT JOIN pois p
-      ON p.cityid = c.cityid
-    GROUP BY
-      c.cityid,
-      c.name,
-      co.countryid,
-      co.name
+    JOIN countries co ON co.countryid = c.countryid
+    LEFT JOIN city_poi_counts cpc ON cpc.cityid = c.cityid
     ORDER BY
       "poiCount" DESC,
       "name" ASC
@@ -67,6 +67,13 @@ const get_recommendations_cities_warm_budget = async function (req, res) {
   const poiThreshold = 3;
 
   const sql = `
+    WITH city_poi_counts AS (
+      SELECT 
+        cityid,
+        COUNT(poiid)::int AS poi_count
+      FROM pois
+      GROUP BY cityid
+    )
     SELECT
       c.cityid                         AS "cityId",
       c.name                           AS "name",
@@ -74,24 +81,15 @@ const get_recommendations_cities_warm_budget = async function (req, res) {
       co.name                          AS "countryName",
       c.avgtemperaturelatestyear::float8 AS "avgTemperature",
       c.avgfoodprice::float8           AS "avgFoodPrice",
-      COUNT(p.poiid)::int              AS "poiCount"
+      COALESCE(cpc.poi_count, 0)::int  AS "poiCount"
     FROM cities c
-    JOIN countries co
-      ON co.countryid = c.countryid
-    LEFT JOIN pois p
-      ON p.cityid = c.cityid
+    JOIN countries co ON co.countryid = c.countryid
+    LEFT JOIN city_poi_counts cpc ON cpc.cityid = c.cityid
     WHERE
       c.avgtemperaturelatestyear IS NOT NULL
       AND c.avgtemperaturelatestyear >= $2::numeric
       AND c.avgfoodprice IS NOT NULL
-    GROUP BY
-      c.cityid,
-      c.name,
-      co.countryid,
-      co.name,
-      c.avgtemperaturelatestyear,
-      c.avgfoodprice
-    HAVING COUNT(p.poiid) >= $3::int
+      AND COALESCE(cpc.poi_count, 0) >= $3::int
     ORDER BY
       c.avgfoodprice ASC,
       "poiCount" DESC,

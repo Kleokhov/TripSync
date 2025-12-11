@@ -5,7 +5,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { Separator } from './ui/separator';
 import { Checkbox } from './ui/checkbox';
-import { MemberPreference, GroupFilters } from '../App';
+import { MemberPreference, GroupFilters } from '../pages/DiscoveryPage';
 import { Badge } from './ui/badge';
 
 interface GroupPreferencesFormProps {

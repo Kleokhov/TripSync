@@ -3,14 +3,17 @@ import { Button } from './ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Badge } from './ui/badge';
 import { Progress } from './ui/progress';
-import { DestinationMatch } from '../App';
+import { DestinationMatch } from '../services/api';
+import { Link } from 'react-router-dom';
+import { ExternalLink } from 'lucide-react';
 
 interface DestinationResultsProps {
   results: DestinationMatch[];
   onReset: () => void;
+  onPlanTrip?: (cityIds: number[]) => void;
 }
 
-export function DestinationResults({ results, onReset }: DestinationResultsProps) {
+export function DestinationResults({ results, onReset, onPlanTrip }: DestinationResultsProps) {
   const getRankColor = (index: number) => {
     switch (index) {
       case 0: return 'bg-yellow-500';
@@ -85,6 +88,12 @@ export function DestinationResults({ results, onReset }: DestinationResultsProps
                     <CardDescription className="flex items-center gap-2">
                       <MapPin className="size-4" />
                       {destination.countryName}
+                      <Link 
+                        to={destination.scope === 'city' ? `/city/${destination.id}` : `/country/${destination.countryId}`}
+                        className="ml-2 text-indigo-600 hover:text-indigo-700"
+                      >
+                        <ExternalLink className="size-3" />
+                      </Link>
                     </CardDescription>
                   </div>
                 </div>
@@ -93,7 +102,9 @@ export function DestinationResults({ results, onReset }: DestinationResultsProps
                 <div className="text-right shrink-0">
                   <div className="flex items-center gap-1 text-indigo-600 mb-1">
                     <Star className="size-5 fill-indigo-600" />
-                    <span className="text-2xl">{destination.compositeScore.toFixed(0)}%</span>
+                    <span className="text-2xl">
+                      {(Number(destination.compositeScore) * 100).toFixed(0)}%
+                    </span>
                   </div>
                   <p className="text-sm text-gray-500">Match Score</p>
                 </div>
@@ -109,9 +120,9 @@ export function DestinationResults({ results, onReset }: DestinationResultsProps
                       <Utensils className="size-4" />
                       Food/Budget Score
                     </span>
-                    <span>{destination.foodScore.toFixed(0)}%</span>
+                    <span>{(Number(destination.foodScore) * 100).toFixed(0)}%</span>
                   </div>
-                  <Progress value={destination.foodScore} className="h-2" />
+                  <Progress value={Number(destination.foodScore) * 100} className="h-2" />
                 </div>
 
                 <div className="space-y-2">
@@ -120,9 +131,9 @@ export function DestinationResults({ results, onReset }: DestinationResultsProps
                       <MapPinned className="size-4" />
                       Attractions Score
                     </span>
-                    <span>{destination.attractionsScore.toFixed(0)}%</span>
+                    <span>{(Number(destination.attractionsScore) * 100).toFixed(0)}%</span>
                   </div>
-                  <Progress value={destination.attractionsScore} className="h-2" />
+                  <Progress value={Number(destination.attractionsScore) * 100} className="h-2" />
                 </div>
 
                 <div className="space-y-2">
@@ -131,9 +142,9 @@ export function DestinationResults({ results, onReset }: DestinationResultsProps
                       <Hotel className="size-4" />
                       Hotels Score
                     </span>
-                    <span>{destination.hotelScore.toFixed(0)}%</span>
+                    <span>{(Number(destination.hotelScore) * 100).toFixed(0)}%</span>
                   </div>
-                  <Progress value={destination.hotelScore} className="h-2" />
+                  <Progress value={Number(destination.hotelScore) * 100} className="h-2" />
                 </div>
               </div>
 
@@ -181,48 +192,54 @@ export function DestinationResults({ results, onReset }: DestinationResultsProps
                 </div>
               </div>
 
-              {/* Sample Attractions */}
-              {destination.sampleAttractions.length > 0 && (
-                <div>
-                  <h4 className="text-sm text-gray-600 mb-2">Featured Attractions</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {destination.sampleAttractions.map((attraction) => (
-                      <Badge 
-                        key={attraction.poiId} 
-                        variant="secondary"
-                        className="bg-indigo-50 text-indigo-700"
-                      >
-                        {attraction.name}
-                        <span className="ml-1 text-xs text-indigo-500">({attraction.category})</span>
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* View Details Link */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <Link
+                  to={destination.scope === 'city' ? `/city/${destination.id}` : `/country/${destination.countryId}`}
+                  className="text-indigo-600 hover:text-indigo-700 text-sm font-medium flex items-center gap-1"
+                >
+                  View Detailed Info
+                  <ExternalLink className="size-3" />
+                </Link>
+              </div>
             </CardContent>
           </Card>
         ))}
       </div>
 
       {/* Footer Actions */}
-      <div className="text-center pt-4">
-        <p className="text-gray-500 mb-4">
-          Ready to plan your trip to these destinations?
-        </p>
-        <div className="flex gap-3 justify-center">
-          <Button 
-            variant="outline"
-            className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-          >
-            Create Itinerary
-          </Button>
-          <Button 
-            className="bg-indigo-600 hover:bg-indigo-700 text-white"
-          >
-            View Detailed Info
-          </Button>
+      {results.length > 0 && (
+        <div className="text-center pt-4">
+          <p className="text-gray-500 mb-4">
+            Ready to plan your trip to these destinations?
+          </p>
+          <div className="flex gap-3 justify-center">
+            {onPlanTrip && (
+              <Button 
+                onClick={() => onPlanTrip(results.map(r => r.id))}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              >
+                Create Itinerary
+              </Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+      
+      {(!results || results.length === 0) && (
+        <Card className="bg-white/80 backdrop-blur">
+          <CardContent className="py-12 text-center">
+            <p className="text-gray-500 text-lg mb-2">No destinations found</p>
+            <p className="text-gray-400 text-sm mb-4">
+              Try adjusting your filters to find more destinations
+            </p>
+            <Button onClick={onReset} variant="outline">
+              <ArrowLeft className="size-4 mr-2" />
+              New Search
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

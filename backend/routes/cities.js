@@ -155,7 +155,7 @@ const get_city_by_id = async function (req, res) {
     FROM cities c
     LEFT JOIN pois p
       ON p.cityid = c.cityid
-    LEFT JOIN hotel h
+    LEFT JOIN hotels h
       ON h.cityid = c.cityid
     WHERE c.cityid = $1
     GROUP BY
@@ -272,7 +272,7 @@ const get_city_hotels = async function (req, res) {
       h.rating::float8 AS "rating",
       h.address    AS "address",
       h.description AS "description"
-    FROM hotel h
+    FROM hotels h
     WHERE
       h.cityid = $1
       AND ($2::numeric IS NULL OR h.rating >= $2::numeric)
