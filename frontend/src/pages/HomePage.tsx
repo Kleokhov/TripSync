@@ -159,8 +159,10 @@ export function HomePage() {
       if (!cachedBestPerCountry) {
         try {
           const bestData = await getRecommendationsCitiesBestPerCountry({ minPoi: 5, minHotels: 5 });
-          setBestPerCountry(bestData.bestCities);
-          sessionStorage.setItem('bestPerCountry', JSON.stringify(bestData.bestCities));
+          // Only keep the first city (one country)
+          const firstCity = bestData.bestCities.length > 0 ? [bestData.bestCities[0]] : [];
+          setBestPerCountry(firstCity);
+          sessionStorage.setItem('bestPerCountry', JSON.stringify(firstCity));
         } catch (error) {
           console.error('Error loading best per country cities:', error);
         } finally {
@@ -348,80 +350,101 @@ export function HomePage() {
             </CardContent>
           </Card>
 
-          {/* Balanced Cities Section */}
-          <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TrendingUp className="size-5 text-purple-600" />
-                Balanced Cities
-              </CardTitle>
-              <CardDescription>Best overall balance of food prices, attractions, and hotels</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading.balanced ? (
-                <div className="text-center py-8">
-                  <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {balanced.map((city) => (
-                    <Link
-                      key={city.cityId}
-                      to={`/city/${city.cityId}`}
-                      className="flex items-center justify-between p-3 rounded-lg border border-purple-200 hover:border-purple-300 hover:bg-purple-50 transition-all group"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-indigo-900 group-hover:text-indigo-700 truncate">{city.cityName}</h4>
-                        <p className="text-sm text-gray-500 truncate">{city.countryName}</p>
-                      </div>
-                      <Badge variant="secondary" className="ml-3 shrink-0 bg-purple-100 text-purple-700">
-                        {(Number(city.compositeScore) * 100).toFixed(0)}%
-                      </Badge>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
+        </div>
 
-          {/* Best Per Country Section */}
-          <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Globe className="size-5 text-blue-600" />
-                Best City Per Country
-              </CardTitle>
-              <CardDescription>Top-rated city from each country with museums and quality hotels</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {loading.bestPerCountry ? (
-                <div className="text-center py-8">
-                  <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
+        {/* Best Per Country Section - Full Width */}
+        <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100 mt-8 mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Globe className="size-5 text-blue-600" />
+              Best City Per Country
+            </CardTitle>
+            <CardDescription>Top-rated city with museums and quality hotels</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading.bestPerCountry ? (
+              <div className="text-center py-8">
+                <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
+              </div>
+            ) : bestPerCountry.length > 0 ? (
+              <Link
+                to={`/city/${bestPerCountry[0].cityId}`}
+                className="flex items-center justify-between p-4 rounded-lg border-2 border-blue-200 hover:border-blue-300 hover:bg-blue-50 transition-all group"
+              >
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-lg font-semibold text-indigo-900 group-hover:text-indigo-700 truncate">{bestPerCountry[0].cityName}</h4>
+                  <p className="text-sm text-gray-500 truncate">{bestPerCountry[0].countryName}</p>
                 </div>
-              ) : (
-                <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
-                  {bestPerCountry.slice(0, 6).map((city) => (
-                    <Link
-                      key={`${city.countryId}-${city.cityId}`}
-                      to={`/city/${city.cityId}`}
-                      className="flex items-center justify-between p-3 rounded-lg border border-blue-200 hover:border-blue-300 hover:bg-blue-50 transition-all group"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold text-indigo-900 group-hover:text-indigo-700 truncate">{city.cityName}</h4>
-                        <p className="text-sm text-gray-500 truncate">{city.countryName}</p>
-                      </div>
-                      <div className="flex gap-2 ml-3 shrink-0">
-                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-xs">
-                          {city.avgHotelRating != null ? Number(city.avgHotelRating).toFixed(1) : 'N/A'}★
+                <div className="flex items-center gap-4 ml-4 shrink-0">
+                  <div className="text-right">
+                    <p className="text-sm text-gray-600">Hotel Rating</p>
+                    <p className="text-lg font-semibold text-blue-700">
+                      {bestPerCountry[0].avgHotelRating != null ? Number(bestPerCountry[0].avgHotelRating).toFixed(1) : 'N/A'}★
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-600">Attractions</p>
+                    <p className="text-lg font-semibold text-blue-700">{bestPerCountry[0].poiCount}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-600">Hotels</p>
+                    <p className="text-lg font-semibold text-blue-700">{bestPerCountry[0].hotelCount}</p>
+                  </div>
+                </div>
+              </Link>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-gray-500">No cities found</p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Balanced Cities Section - Full Width */}
+        <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100 mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <TrendingUp className="size-5 text-purple-600" />
+              Balanced Cities
+            </CardTitle>
+            <CardDescription>Best overall balance of food prices, attractions, and hotels</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {loading.balanced ? (
+              <div className="text-center py-8">
+                <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {balanced.map((city) => (
+                  <Link
+                    key={city.cityId}
+                    to={`/city/${city.cityId}`}
+                    className="flex flex-col p-4 rounded-lg border-2 border-purple-200 hover:border-purple-300 hover:bg-purple-50 transition-all group"
+                  >
+                    <div className="flex-1 min-w-0 mb-3">
+                      <h4 className="font-semibold text-indigo-900 group-hover:text-indigo-700 truncate mb-1">{city.cityName}</h4>
+                      <p className="text-sm text-gray-500 truncate">{city.countryName}</p>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex flex-col gap-1">
+                        <div className="text-xs text-gray-600">Composite Score</div>
+                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 w-fit">
+                          {(Number(city.compositeScore) * 100).toFixed(0)}%
                         </Badge>
                       </div>
-                    </Link>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
+                      <div className="text-right text-xs text-gray-600">
+                        <div>${city.avgFoodPrice?.toFixed(1) || 'N/A'}</div>
+                        <div>{city.attractionCount} POIs</div>
+                        <div>{city.avgHotelRating?.toFixed(1) || 'N/A'}★</div>
+                      </div>
+                    </div>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

@@ -175,7 +175,7 @@ const destinations_features = async function (req, res) {
           h.cityid,
           AVG(h.rating) AS avg_rating,
           COUNT(*) AS hotel_count
-        FROM hotel h
+        FROM hotels h
         INNER JOIN filtered_cities fc ON fc.cityid = h.cityid
         GROUP BY h.cityid
       ),

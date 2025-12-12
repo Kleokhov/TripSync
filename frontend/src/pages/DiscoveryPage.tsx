@@ -167,7 +167,7 @@ export function DiscoveryPage() {
                 <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-2">Finding Destinations</h3>
                 <p className="text-sm text-gray-600">
-                  This may take 10-15 seconds for broad filters...
+                  This may take a moment for broad filters...
                 </p>
               </div>
             </div>
