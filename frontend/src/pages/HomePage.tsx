@@ -399,52 +399,6 @@ export function HomePage() {
             )}
           </CardContent>
         </Card>
-
-        {/* Balanced Cities Section - Full Width */}
-        <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100 mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="size-5 text-purple-600" />
-              Balanced Cities
-            </CardTitle>
-            <CardDescription>Best overall balance of food prices, attractions, and hotels</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading.balanced ? (
-              <div className="text-center py-8">
-                <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
-              </div>
-            ) : (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {balanced.map((city) => (
-                  <Link
-                    key={city.cityId}
-                    to={`/city/${city.cityId}`}
-                    className="flex flex-col p-4 rounded-lg border-2 border-purple-200 hover:border-purple-300 hover:bg-purple-50 transition-all group"
-                  >
-                    <div className="flex-1 min-w-0 mb-3">
-                      <h4 className="font-semibold text-indigo-900 group-hover:text-indigo-700 truncate mb-1">{city.cityName}</h4>
-                      <p className="text-sm text-gray-500 truncate">{city.countryName}</p>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div className="flex flex-col gap-1">
-                        <div className="text-xs text-gray-600">Composite Score</div>
-                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 w-fit">
-                          {(Number(city.compositeScore) * 100).toFixed(0)}%
-                        </Badge>
-                      </div>
-                      <div className="text-right text-xs text-gray-600">
-                        <div>${city.avgFoodPrice?.toFixed(1) || 'N/A'}</div>
-                        <div>{city.attractionCount} POIs</div>
-                        <div>{city.avgHotelRating?.toFixed(1) || 'N/A'}★</div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
       </div>
     </div>
   );
