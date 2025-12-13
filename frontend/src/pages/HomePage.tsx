@@ -367,121 +367,108 @@ export function HomePage() {
           </Card>
         </div>
 
-        {/* Best Per Country */}
-        <div className="h-8" />
-        <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100 mt-8 mb-8">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Globe className="size-5 text-blue-600" />
-              Best City Per Country
-            </CardTitle>
-            <CardDescription>Top-rated city with stores and quality hotels</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading.bestPerCountry ? (
-              <div className="text-center py-8">
-                <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
-              </div>
-            ) : bestPerCountry.length > 0 ? (
-              <div className="flex flex-col gap-3">
-                <div className="text-xs text-gray-500">
-                  Showing {bestPerCountry.length} result{bestPerCountry.length === 1 ? '' : 's'}
+        {/* Best Per Country & Balanced Grid */}
+        <div className="grid md:grid-cols-2 gap-6 mt-8 mb-8">
+          {/* Best Per Country */}
+          <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Globe className="size-5 text-blue-600" />
+                Best City Per Country
+              </CardTitle>
+              <CardDescription>Top-rated city with stores and quality hotels</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading.bestPerCountry ? (
+                <div className="text-center py-8">
+                  <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
                 </div>
-
-                {bestPerCountry.map((row) => (
-                  <Link
-                    key={`${row.countryId}-${row.cityId}`}
-                    to={`/city/${row.cityId}`}
-                    className="flex items-center justify-between p-4 rounded-lg border-2 border-blue-200 hover:border-blue-300 hover:bg-blue-50 transition-all group"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-lg font-semibold text-indigo-900 group-hover:text-indigo-700 truncate">
-                        {row.cityName}
-                      </h4>
-                      <p className="text-sm text-gray-500 truncate">{row.countryName}</p>
-                      {row.rankInCountry != null && (
-                        <p className="text-xs text-gray-400">Rank in country: {row.rankInCountry}</p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-4 ml-4 shrink-0">
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">Hotel Rating</p>
-                        <p className="text-lg font-semibold text-blue-700">
+              ) : bestPerCountry.length > 0 ? (
+                <div className="flex flex-col gap-3">
+                  {bestPerCountry.slice(0, 6).map((row) => (
+                    <Link
+                      key={`${row.countryId}-${row.cityId}`}
+                      to={`/city/${row.cityId}`}
+                      className="flex items-center justify-between p-3 rounded-lg border border-blue-200 hover:border-blue-300 hover:bg-blue-50 transition-all group"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-indigo-900 group-hover:text-indigo-700 truncate">
+                          {row.cityName}
+                        </h4>
+                        <p className="text-sm text-gray-500 truncate">{row.countryName}</p>
+                      </div>
+                      <div className="flex gap-2 ml-3 shrink-0">
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-xs">
                           {row.avgHotelRating != null ? Number(row.avgHotelRating).toFixed(1) : 'N/A'}★
-                        </p>
+                        </Badge>
+                        <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 text-xs">
+                          {row.poiCount} POIs
+                        </Badge>
+                        <Badge variant="secondary" className="bg-purple-100 text-purple-700 text-xs">
+                          {row.hotelCount} Hotels
+                        </Badge>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">Attractions</p>
-                        <p className="text-lg font-semibold text-blue-700">{row.poiCount}</p>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-gray-500">No cities found</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Balanced */}
+          <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <TrendingUp className="size-5 text-emerald-600" />
+                Balanced Picks
+              </CardTitle>
+              <CardDescription>A mix of affordability, attractions, and hotel quality</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {loading.balanced ? (
+                <div className="text-center py-8">
+                  <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
+                </div>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  {balanced.slice(0, 6).map((city) => (
+                    <Link
+                      key={city.cityId}
+                      to={`/city/${city.cityId}`}
+                      className="flex items-center justify-between p-3 rounded-lg border border-emerald-200 hover:border-emerald-300 hover:bg-emerald-50 transition-all group"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-indigo-900 group-hover:text-indigo-700 truncate">
+                          {city.cityName}
+                        </h4>
+                        <p className="text-sm text-gray-500 truncate">{city.countryName}</p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-sm text-gray-600">Hotels</p>
-                        <p className="text-lg font-semibold text-blue-700">{row.hotelCount}</p>
+
+                      <div className="flex gap-2 ml-3 shrink-0">
+                        <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-xs">
+                          Score {city.compositeScore != null ? Number(city.compositeScore).toFixed(2) : 'N/A'}
+                        </Badge>
+                        <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
+                          ${city.avgFoodPrice != null ? Number(city.avgFoodPrice).toFixed(1) : 'N/A'}
+                        </Badge>
+                        <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 text-xs">
+                          {city.attractionCount ?? 0} POIs
+                        </Badge>
+                        <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-xs">
+                          {city.avgHotelRating != null ? Number(city.avgHotelRating).toFixed(1) : 'N/A'}★
+                        </Badge>
                       </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500">No cities found</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Balanced */}
-        <div className="h-8" />
-        <Card className="bg-white/80 backdrop-blur shadow-xl border-indigo-100">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <TrendingUp className="size-5 text-emerald-600" />
-              Balanced Picks
-            </CardTitle>
-            <CardDescription>A mix of affordability, attractions, and hotel quality</CardDescription>
-          </CardHeader>
-
-          <CardContent>
-            {loading.balanced ? (
-              <div className="text-center py-8">
-                <Loader2 className="size-6 animate-spin mx-auto text-indigo-600" />
-              </div>
-            ) : (
-              <div className="flex flex-col gap-3">
-                {balanced.map((city) => (
-                  <Link
-                    key={city.cityId}
-                    to={`/city/${city.cityId}`}
-                    className="flex items-center justify-between p-3 rounded-lg border border-emerald-200 hover:border-emerald-300 hover:bg-emerald-50 transition-all group"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-indigo-900 group-hover:text-indigo-700 truncate">
-                        {city.cityName}
-                      </h4>
-                      <p className="text-sm text-gray-500 truncate">{city.countryName}</p>
-                    </div>
-
-                    <div className="flex gap-2 ml-3 shrink-0">
-                      <Badge variant="secondary" className="bg-emerald-100 text-emerald-700 text-xs">
-                        Score {city.compositeScore != null ? Number(city.compositeScore).toFixed(2) : 'N/A'}
-                      </Badge>
-                      <Badge variant="secondary" className="bg-green-100 text-green-700 text-xs">
-                        ${city.avgFoodPrice != null ? Number(city.avgFoodPrice).toFixed(1) : 'N/A'}
-                      </Badge>
-                      <Badge variant="secondary" className="bg-indigo-100 text-indigo-700 text-xs">
-                        {city.attractionCount ?? 0} POIs
-                      </Badge>
-                      <Badge variant="secondary" className="bg-blue-100 text-blue-700 text-xs">
-                        {city.avgHotelRating != null ? Number(city.avgHotelRating).toFixed(1) : 'N/A'}★
-                      </Badge>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
     </div>
   );
